@@ -1,0 +1,255 @@
+spring:
+  application:
+    name: marketplace
+
+  jackson:
+    # Django/ninja's JSON contract is snake_case throughout (message_code,
+    # error_code, current_time, access_token, phone_number, ...) — FE-admin
+    # reads/sends those exact keys (verified against FE-admin/src/services/
+    # *.js). Setting this globally means every DTO/record's normal camelCase
+    # Java fields serialize/deserialize as snake_case automatically, instead
+    # of needing @JsonProperty on every single field in every module (a few
+    # already-ported modules added those manually before this was in place;
+    # harmless — an explicit @JsonProperty just matches what this now does
+    # by default). This was a real bug: the response envelope (ApiResponse)
+    # and the users module's DTOs were emitting camelCase until caught during
+    # the `dish` port by cross-checking FE-admin source — see CLAUDE.md §3.
+    property-naming-strategy: SNAKE_CASE
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/amomeal}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate # schema owned by Flyway migrations, never auto-DDL
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  data:
+    redis:
+      # only StringRedisTemplate is used; stops ~100 'could not safely identify store assignment' INFO lines at startup
+      repositories:
+        enabled: false
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      # Django's refresh-token client uses socket_timeout=3 / socket_connect_timeout=3
+      # (users/redis_tokens.py); Lettuce's default is 60s, which would make every
+      # login/refresh hang for a minute while Redis is unreachable.
+      timeout: ${REDIS_TIMEOUT:3s}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:3s}
+      # Logical separation of concerns kept from the Django project's Redis
+      # DB-number partitioning, but collapsed to what Spring Boot still needs
+      # (no Celery broker, no Channels pub/sub — see CLAUDE.md §6):
+      #   DB 0 — refresh token store
+      #   DB 1 — dish stock-reservation holds
+      database: 0
+
+  mail:
+    host: ${EMAIL_HOST:}
+    port: ${EMAIL_PORT:587}
+    username: ${EMAIL_HOST_USER:}
+    password: ${EMAIL_HOST_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+# The mail health indicator reports DOWN (-> /actuator/health 503) whenever SMTP is not configured, but mail failures
+# are swallowed by design (EmailClient parity), so they must not fail the app's health check.
+management:
+  health:
+    mail:
+      enabled: false
+
+server:
+  port: ${SERVER_PORT:8000}
+
+app:
+  auth:
+    jwt-secret: ${AUTH_JWT_SECRET:dev-only-insecure-secret-change-me}
+    jwt-algorithm: HS256
+    access-token-ttl-minutes: ${AUTH_ACCESS_TOKEN_EXPIRES_IN:15}
+    refresh-token-ttl-minutes: ${AUTH_REFRESH_TOKEN_EXPIRES_IN:43200} # 30 days
+    refresh-token-pepper: ${AUTH_REFRESH_TOKEN_PEPPER:${app.auth.jwt-secret}}
+  stock:
+    # dish module stock holds - mirrors Django settings STOCK_HOLD_TTL_SECONDS
+    # and the /2 database suffix of STOCK_REDIS_URL.
+    hold-ttl-seconds: ${STOCK_HOLD_TTL_SECONDS:900}
+    # Logical Redis DB index for the stock counters (see StockRedisClient: a
+    # dedicated LettuceConnectionFactory per logical DB, CLAUDE.md section 6).
+    redis-database: ${STOCK_REDIS_DATABASE:1}
+    # The @Scheduled expired-hold sweep (Django Celery Beat, every 30s).
+    sweep-enabled: ${STOCK_SWEEP_ENABLED:true}
+    sweep-batch-size: ${STOCK_SWEEP_BATCH_SIZE:500}
+    # Redis-outage tolerance (Django backend-edit 9939179, marketplace/settings.py; same env
+    # names/defaults). Redis is an accelerator, not a hard dependency: while it is unreachable
+    # reserve() falls back to Postgres row locks (see StockReservationService).
+    # Optional dedicated stock Redis (Django STOCK_REDIS_URL, e.g. redis://:pw@host:6379/2);
+    # empty = the main spring.data.redis connection + redis-database above.
+    redis-url: ${STOCK_REDIS_URL:}
+    # Sentinel mode (Django STOCK_REDIS_SENTINELS="h1:26379,h2:26379"): empty = off.
+    redis-sentinels: ${STOCK_REDIS_SENTINELS:}
+    redis-sentinel-master: ${STOCK_REDIS_SENTINEL_MASTER:mymaster}
+    redis-password: ${STOCK_REDIS_PASSWORD:}
+    # Short socket/command timeout so a dead Redis costs milliseconds per request.
+    redis-socket-timeout-seconds: ${STOCK_REDIS_SOCKET_TIMEOUT:0.3}
+    # Circuit breaker: open after N consecutive Redis failures, probe once per reset window.
+    redis-breaker-fail-max: ${STOCK_REDIS_BREAKER_FAIL_MAX:3}
+    redis-breaker-reset-seconds: ${STOCK_REDIS_BREAKER_RESET_SECONDS:10}
+  # payment module — PayOS. Env var names are Django's exactly
+  # (../backend/payment/providers/payos.py). Missing credentials only fail the PayOS
+  # calls themselves (Django fails at PaymentService() construction — see PayOsProperties).
+  payos:
+    client-id: ${PAYOS_CLIENT_ID:}
+    api-key: ${PAYOS_API_KEY:}
+    checksum-key: ${PAYOS_CHECKSUM_KEY:}
+    payout-client-id: ${PAYOS_PAYOUT_CLIENT_ID:}
+    payout-api-key: ${PAYOS_PAYOUT_API_KEY:}
+    payout-checksum-key: ${PAYOS_PAYOUT_CHECKSUM_KEY:}
+    api-url: ${PAYOS_API_URL:https://api-merchant.payos.vn}
+    # the official payos SDK (used by Django for payouts) reads its own PAYOS_BASE_URL
+    sdk-base-url: ${PAYOS_BASE_URL:https://api-merchant.payos.vn}
+    return-url: ${PAYOS_RETURN_URL:}
+    cancel-url: ${PAYOS_CANCEL_URL:}
+  payment:
+    # Django settings.WALLET_CHAIN_SECRET = os.getenv("WALLET_CHAIN_SECRET", "") — the empty
+    # default is Django's own (flagged: set a real 256-bit secret in production).
+    wallet-chain-secret: ${WALLET_CHAIN_SECRET:}
+    # Django: getattr(settings, "PAYMENT_EVENT_SECRET", settings.SECRET_KEY) — never defined in
+    # Django's settings, so SECRET_KEY is what Django actually uses.
+    event-secret: ${PAYMENT_EVENT_SECRET:${SECRET_KEY:${app.auth.jwt-secret}}}
+    # false (default, user decision "fix" — PROGRESS.md payment open question #1) = the intended
+    # escrow behavior. true reproduces Django's actual bug (every paid PayOS order ends
+    # cancelled + refunded); see PaymentProperties.
+    preserve-django-confirm-outcome-bug: ${PAYMENT_PRESERVE_DJANGO_CONFIRM_OUTCOME_BUG:false}
+    # Scheduled PayOS reconciliation (user decision 2026-09-25; Django backend-edit 9939179 added
+    # the same job, payment/tasks.py, every 60s / 120s / 24h / 50): polls PayOS for PENDING
+    # payments whose webhook may have been lost. See PaymentReconciliationService.
+    reconciliation:
+      enabled: ${PAYMENT_RECONCILIATION_ENABLED:true}
+      interval: ${PAYMENT_RECONCILIATION_INTERVAL:PT60S}
+      min-age: ${PAYMENT_RECONCILIATION_MIN_AGE:PT2M}
+      max-age: ${PAYMENT_RECONCILIATION_MAX_AGE:PT24H}
+      batch-size: ${PAYMENT_RECONCILIATION_BATCH_SIZE:50}
+  # order module — transactional outbox (Django backend-edit 9939179, order/outbox.py +
+  # order/tasks.py::dispatch_pending_outbox_events; Django hardcodes these constants).
+  order:
+    outbox:
+      dispatch-enabled: ${OUTBOX_DISPATCH_ENABLED:true}
+      dispatch-interval: ${OUTBOX_DISPATCH_INTERVAL:PT30S}
+      max-attempts: ${OUTBOX_MAX_ATTEMPTS:10}
+      backoff-base-seconds: ${OUTBOX_BACKOFF_BASE_SECONDS:5}
+      backoff-max-seconds: ${OUTBOX_BACKOFF_MAX_SECONDS:300}
+      sweep-batch-size: ${OUTBOX_SWEEP_BATCH_SIZE:100}
+  # certificate module — false (default) = chef profile's is_food_safety_certified reflects a real
+  # ACTIVE FOOD_SAFETY certificate; true reproduces Django's bug (it filters a non-existent
+  # status "APPROVED", so the flag is always false). See ChefCertificationProviderImpl.
+  certificate:
+    preserve-approved-status-bug: ${CERTIFICATE_PRESERVE_APPROVED_STATUS_BUG:false}
+  # tracking module (all three flags: false = working behavior, true = Django bug; avg-rating default true = Django, see PROGRESS.md)
+  tracking:
+    preserve-ws-route-bug: ${TRACKING_PRESERVE_WS_ROUTE_BUG:false}
+    preserve-order-tracking-bug: ${TRACKING_PRESERVE_ORDER_TRACKING_BUG:false}
+    preserve-zero-avg-rating-bug: ${TRACKING_PRESERVE_ZERO_AVG_RATING_BUG:true}
+  # review module — PhoBERT AI-model call (../backend/AI-model-prod). Env var names
+  # are Django's exactly (../backend/marketplace/settings.py AI_MODEL_BASE_URL/
+  # AI_MODEL_TIMEOUT_SECONDS). No real AI service is required to run this backend —
+  # RestClientAiModelClient falls back to (weight=0.0, issue=null) on any failure,
+  # exactly like Django (see AiModelClient's javadoc); tests substitute a fake.
+  ai-model:
+    base-url: ${AI_MODEL_BASE_URL:http://localhost:8001}
+    timeout-seconds: ${AI_MODEL_TIMEOUT_SECONDS:10}
+  # recommendation module — ../backend/marketplace/settings.py RECOMMENDATION_CONFIG, key for key,
+  # same defaults, same env var names. See RecommendationProperties.
+  recommendation:
+    candidate-pool-size: ${RECOMMENDATION_CANDIDATE_POOL_SIZE:300}
+    candidate-max-per-category: ${RECOMMENDATION_CANDIDATE_MAX_PER_CATEGORY:0}
+    use-pgvector-ann-candidates: ${RECOMMENDATION_USE_PGVECTOR_ANN_CANDIDATES:false}
+    history-decay-lambda: ${RECOMMENDATION_HISTORY_DECAY_LAMBDA:0.03}
+    recency-decay-lambda: ${RECOMMENDATION_RECENCY_DECAY_LAMBDA:0.02}
+    favorite-recency-decay-lambda: ${RECOMMENDATION_FAVORITE_RECENCY_DECAY_LAMBDA:0.03}
+    user-vector-ema-alpha: ${RECOMMENDATION_USER_VECTOR_EMA_ALPHA:0.35}
+    diet-balanced-target: ${RECOMMENDATION_DIET_BALANCED_TARGET_PROTEIN:0.3},${RECOMMENDATION_DIET_BALANCED_TARGET_FAT:0.3},${RECOMMENDATION_DIET_BALANCED_TARGET_CARB:0.4}
+    mmr-lambda: ${RECOMMENDATION_MMR_LAMBDA:0.5}
+    use-pgvector-similarity: ${RECOMMENDATION_USE_PGVECTOR_SIMILARITY:false}
+    penalty-gamma: ${RECOMMENDATION_PENALTY_GAMMA:0.25}
+    penalty-correlation-threshold: ${RECOMMENDATION_PENALTY_CORRELATION_THRESHOLD:0.35}
+    # daily-nutrition meal->dish matching (_match_dish). false (default) = gate the top dish-search
+    # hit on its own search_score being >= dish-match-threshold (NUTRITION_API.md: 0.6); true
+    # reproduces Django's bug of always taking the top hit regardless of similarity.
+    dish-match-threshold: ${RECOMMENDATION_DISH_MATCH_THRESHOLD:0.6}
+    preserve-dish-match-no-threshold: ${RECOMMENDATION_PRESERVE_DISH_MATCH_NO_THRESHOLD:false}
+    weights:
+      w1: ${RECOMMENDATION_W1:0.4}
+      w2: ${RECOMMENDATION_W2:0.2}
+      w3: ${RECOMMENDATION_W3:0.2}
+      w4: ${RECOMMENDATION_W4:0.1}
+      w5: ${RECOMMENDATION_W5:0.1}
+  # Gemini (daily-nutrition meal parser + recipe generator). Django: GEMINI_API_KEY (empty = both
+  # Gemini tiers skipped). OLLAMA_BASE_URL/OLLAMA_MODEL exist in Django's settings but are only
+  # referenced by commented-out code — deliberately not ported. See GeminiProperties.
+  gemini:
+    api-key: ${GEMINI_API_KEY:}
+    model: gemini-2.5-flash-lite
+    base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com}
+    # false (default) = the WORKING recipe generator; true reproduces Django's bug (the
+    # generate_content(timeout=3.0) TypeError makes the recipe tier always return None).
+    preserve-recipe-timeout-bug: ${GEMINI_PRESERVE_RECIPE_TIMEOUT_BUG:false}
+  # verification module: Gemini Vision reuses app.gemini.* above (GEMINI_API_KEY empty = document
+  # analysis fails with 500 exactly like Django). Django runs delete_scheduled_s3 daily at 03:00 by
+  # external cron; here it is a @Scheduled job on the same cron.
+  verification:
+    s3-deletion-enabled: ${VERIFICATION_S3_DELETION_ENABLED:true}
+    s3-deletion-cron: ${VERIFICATION_S3_DELETION_CRON:0 0 3 * * *}
+  # report module (chef-quality reports / suspensions). Django bug fixed by default: ReportSchema.order_id is
+  # Optional[int] but Order pk is a UUID, so every order-linked report 500s on serialization (and financial
+  # reports with an order 500 storing the UUID in a JSON field). true = reproduce Django. See ReportProperties.
+  report:
+    preserve-order-uuid-bug: ${REPORT_PRESERVE_ORDER_UUID_BUG:false}
+    admin-alert-email: ${ADMIN_ALERT_EMAIL:}
+  frontend-url: ${FRONTEND_URL:http://localhost:5173}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  # attachment module storage backend — resolved with the user 2026-09-22 (see
+  # PROGRESS.md "storage decision"): real S3 is the default, matching Django's
+  # actual hard-S3-required behavior; `local` is an explicit opt-in for running
+  # without AWS credentials. See AttachmentStorageProperties/AttachmentStorageService.
+  storage:
+    backend: ${ATTACHMENT_STORAGE_BACKEND:s3}
+    # local-only (app.storage.backend=local):
+    local-root: ${ATTACHMENT_LOCAL_ROOT:./media}
+    public-base-url: ${ATTACHMENT_PUBLIC_BASE_URL:http://localhost:8000/media}
+    upload-base-url: ${ATTACHMENT_UPLOAD_BASE_URL:http://localhost:8000/api/attachments}
+    # s3 (default) — env var names mirror Django's marketplace/settings.py S3_* names exactly:
+    s3-access-key-id: ${S3_ACCESS_KEY_ID:test}
+    s3-secret-access-key: ${S3_SECRET_ACCESS_KEY:test}
+    s3-bucket-name: ${S3_BUCKET_NAME:amomeal-attachments}
+    s3-region: ${S3_REGION:ap-southeast-1}
+    s3-public-url: ${S3_PUBLIC_URL:}
+    s3-expires-in: ${S3_EXPIRES_IN:3600}
+    # NOT in Django — LocalStack endpoint override for tests only, blank = real AWS.
+    s3-endpoint-override: ${S3_ENDPOINT_OVERRIDE:}
+
+springdoc:
+  api-docs:
+    path: /openapi.json
+  swagger-ui:
+    path: /docs
+    url: /openapi.json
+
+logging:
+  level:
+    com.amomeal.marketplace: DEBUG
