@@ -48,6 +48,11 @@ dist/
 backend/
 backend-edit/
 
+# Stray Django-era artifacts at repo root (superseded by backend-spring/).
+/asgi.py
+/openapi.json
+/auth_permission.json
+
 # IDE and editor metadata
 .idea/
 .vscode/
@@ -58,10 +63,21 @@ backend-edit/
 !backend-spring/pom.xml
 !backend-spring/*.md
 !backend-spring/*.MD
+# ...except CLAUDE.md, which stays local-only (see root CLAUDE.md rule below).
+backend-spring/CLAUDE.md
 backend-spring/.env
 backend-spring/media/
 backend-spring/target/
 backend-spring/.mvn/wrapper/maven-wrapper.jar
+
+# Root-level README: keep tracked despite the blanket *.MD rule above.
+!/README.md
+!FE-admin/README.md
+
+# Claude Code tooling files: local-only, never pushed.
+CLAUDE.md
+**/CLAUDE.md
+.claudeignore
 
 # Flutter tooling output
 **/.VSCodeCounter/

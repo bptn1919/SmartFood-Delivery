@@ -1,15 +1,4 @@
-version: '3.8'
-
 services:
-  # --- MONGO DB SERVICE ---
-  mongodb:
-    image: mongo:latest
-    container_name: chat_mongo_db
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo_data:/data/db
-
   # --- REDIS SERVICE ---
   redis:
     image: redis:alpine
@@ -20,7 +9,5 @@ services:
       - redis_data:/data
 
 volumes:
-  mongo_data:
-    name: chat_mongo_data_volume
   redis_data:
     name: chat_redis_data_volume

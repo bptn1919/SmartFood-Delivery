@@ -106,6 +106,10 @@ OTP_WITHDRAW_EXPIRE_MINUTES=$(echo $SECRET | jq -r .OTP_WITHDRAW_EXPIRE_MINUTES)
 # Deployment configs
 PAYMENT_ONLY_DEPLOY=$(echo $SECRET | jq -r .PAYMENT_ONLY_DEPLOY)
 
+# Frontend URL & CORS (backend-spring)
+FRONTEND_URL=$(echo $SECRET | jq -r .FRONTEND_URL)
+CORS_ALLOWED_ORIGINS=$(echo $SECRET | jq -r .CORS_ALLOWED_ORIGINS)
+
 # PAYOS Payouts
 PAYOS_PAYOUT_API_KEY=$(echo $SECRET | jq -r .PAYOS_PAYOUT_API_KEY)
 PAYOS_PAYOUT_CHECKSUM_KEY=$(echo $SECRET | jq -r .PAYOS_PAYOUT_CHECKSUM_KEY)
@@ -129,10 +133,8 @@ if [ "$MODE" = "canary" ]; then
   sudo sed -i 's/3000:80/3001:80/g' /opt/amomeal/docker-compose-canary.yml
   sudo sed -i 's/container_name: backend/container_name: backend-canary/g' /opt/amomeal/docker-compose-canary.yml
   sudo sed -i 's/container_name: frontend/container_name: frontend-canary/g' /opt/amomeal/docker-compose-canary.yml
-  sudo sed -i 's/container_name: mongodb/container_name: mongodb-canary/g' /opt/amomeal/docker-compose-canary.yml
   sudo sed -i 's/container_name: redis/container_name: redis-canary/g' /opt/amomeal/docker-compose-canary.yml
   sudo sed -i 's/container_name: ai-service/container_name: ai-service-canary/g' /opt/amomeal/docker-compose-canary.yml
-  sudo sed -i 's/mongodb_data:/mongodb_canary_data:/g' /opt/amomeal/docker-compose-canary.yml
   sudo sed -i 's/redis_data:/redis_canary_data:/g' /opt/amomeal/docker-compose-canary.yml
   
   # Copy .env file to same directory

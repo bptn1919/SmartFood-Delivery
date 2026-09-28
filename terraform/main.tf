@@ -79,7 +79,7 @@ resource "aws_iam_role" "github_actions_role" {
         Action = "sts:AssumeRoleWithWebIdentity"
         Condition = {
           StringLike = {
-            "token.actions.githubusercontent.com:sub" = "repo:AMOMEAL/DOANCHUYENNGANH:*"
+            "token.actions.githubusercontent.com:sub" = "repo:bptn1919/SmartFood-Delivery:*"
           }
         }
       }

@@ -43,6 +43,16 @@ variable "postgres_user" {
   type        = string
 }
 
+variable "frontend_url" {
+  description = "Public URL of the deployed frontend (used by backend-spring for links in emails/OTP)"
+  type        = string
+}
+
+variable "cors_allowed_origins" {
+  description = "Comma-separated list of origins allowed to call the backend API (backend-spring app.cors.allowed-origins)"
+  type        = string
+}
+
 # Email variables
 variable "email_backend" {
   description = "Email backend class"

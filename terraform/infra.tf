@@ -85,6 +85,10 @@ resource "aws_secretsmanager_secret_version" "backend_secret_value" {
     # Debug (chỉ bật ở môi trường dev)
     DEBUG                            = var.debug
 
+    # Frontend URL & CORS (backend-spring)
+    FRONTEND_URL                     = var.frontend_url
+    CORS_ALLOWED_ORIGINS             = var.cors_allowed_origins
+
     # New Auth & JWT keys
     AUTH_JWT_ALGORITHM               = var.auth_jwt_algorithm
     AUTH_JWT_SECRET                  = var.auth_jwt_secret
