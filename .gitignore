@@ -52,6 +52,17 @@ backend-edit/
 .idea/
 .vscode/
 
+# Spring Boot backend: track source, build configuration and documentation.
+!backend-spring/
+!backend-spring/**
+!backend-spring/pom.xml
+!backend-spring/*.md
+!backend-spring/*.MD
+backend-spring/.env
+backend-spring/media/
+backend-spring/target/
+backend-spring/.mvn/wrapper/maven-wrapper.jar
+
 # Flutter tooling output
 **/.VSCodeCounter/
 **/.dart_tool/
