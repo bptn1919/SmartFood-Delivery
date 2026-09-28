@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend Spring tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend-spring
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Run Maven tests
+        run: ./mvnw -q test
+
+  admin:
+    name: FE admin build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: FE-admin
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: FE-admin/package-lock.json
+      - run: npm ci
+      - name: Run ESLint baseline
+        continue-on-error: true
+        run: npm run lint
+      - name: Build production bundle
+        run: npm run build
+
+  user:
+    name: Flutter user checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Fe-user
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.38.3'
+          cache: true
+      - run: flutter pub get
+      - name: Static analysis
+        run: flutter analyze
+      - name: Run Flutter tests
+        run: flutter test
